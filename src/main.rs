@@ -253,12 +253,14 @@ fn get_versions(repo: &Repository) -> Result<Vec<VersionTag>, Box<dyn std::error
         .tag_names(None)?
         .into_iter()
         .filter_map(|v| v)
+        .filter(|v| v.starts_with("php-"))
         .map(|v| v.to_owned())
         .collect::<Vec<_>>();
     let mut versions = tags
         .iter()
         .filter_map(|tag| {
             Version::parse(&tag)
+                .or_else(|_| Version::parse(tag.strip_prefix("php-").expect("filtered")))
                 .or_else(|_| Version::parse(&format!("{}.0", tag)))
                 .ok()
                 .map(|v| VersionTag {
@@ -314,12 +316,12 @@ fn commit_coauthors(commit: &Commit) -> Vec<Author> {
 /// context to any errors; see that function for further documentation.
 fn build_author_map(
     repo: &Repository,
-    reviewers: &Reviewers,
+    // reviewers: &Reviewers,
     mailmap: &Mailmap,
     from: &str,
     to: &str,
 ) -> Result<AuthorMap, Box<dyn std::error::Error>> {
-    match build_author_map_(repo, reviewers, mailmap, from, to) {
+    match build_author_map_(repo, mailmap, from, to) {
         Ok(o) => Ok(o),
         Err(err) => Err(ErrorContext(
             format!(
@@ -364,6 +366,7 @@ fn is_rollup_commit(commit: &Commit) -> bool {
 /// reviewers. If no line of the commit message contains ` r=` or starts with
 /// `Reviewed-by: `, the commit message must be exactly "automated merge\n",
 /// otherwise panics.
+#[cfg(false)]
 fn parse_bors_reviewer(
     reviewers: &Reviewers,
     repo: &Repository,
@@ -481,7 +484,7 @@ fn parse_bors_reviewer(
 /// [`parse_bors_reviewer`] or other methods results in returning an error.
 fn build_author_map_(
     repo: &Repository,
-    reviewers: &Reviewers,
+    // reviewers: &Reviewers,
     mailmap: &Mailmap,
     from: &str,
     to: &str,
@@ -522,17 +525,17 @@ fn build_author_map_(
             // rollup, which isn't fair.
             commit_authors.push(Author::from_sig(commit.author()));
         }
-        match parse_bors_reviewer(&reviewers, &repo, &commit) {
-            Ok(Some(reviewers)) => commit_authors.extend(reviewers),
-            Ok(None) => {}
-            Err(ErrorContext(msg, e)) => {
-                if e.is::<reviewers::UnknownReviewer>() {
-                    eprintln!("Unknown reviewer: {}", ErrorContext(msg, e));
-                } else {
-                    return Err(ErrorContext(msg, e).into());
-                }
-            }
-        }
+        // match parse_bors_reviewer(&reviewers, &repo, &commit) {
+        //     Ok(Some(reviewers)) => commit_authors.extend(reviewers),
+        //     Ok(None) => {}
+        //     Err(ErrorContext(msg, e)) => {
+        //         if e.is::<reviewers::UnknownReviewer>() {
+        //             eprintln!("Unknown reviewer: {}", ErrorContext(msg, e));
+        //         } else {
+        //             return Err(ErrorContext(msg, e).into());
+        //         }
+        //     }
+        // }
         commit_authors.extend(commit_coauthors(&commit));
         for author in commit_authors {
             let author = mailmap.canonicalize(&author);
@@ -569,7 +572,7 @@ fn mailmap_from_repo(repo: &git2::Repository) -> Result<Mailmap, Box<dyn std::er
 
 fn up_to_release(
     repo: &Repository,
-    reviewers: &Reviewers,
+    // reviewers: &Reviewers,
     mailmap: &Mailmap,
     to: &VersionTag,
 ) -> Result<AuthorMap, Box<dyn std::error::Error>> {
@@ -585,7 +588,7 @@ fn up_to_release(
     })?;
     let modules = get_submodules(&repo, &to_commit)?;
 
-    let mut author_map = build_author_map(&repo, &reviewers, &mailmap, "", &to.raw_tag)
+    let mut author_map = build_author_map(&repo, &mailmap, "", &to.raw_tag)
         .map_err(|e| ErrorContext(format!("Up to {}", to), e))?;
 
     for module in &modules {
@@ -593,7 +596,6 @@ fn up_to_release(
             let subrepo = Repository::open(&path)?;
             let submap = build_author_map(
                 &subrepo,
-                &reviewers,
                 &mailmap,
                 "",
                 &module.commit.to_string(),
@@ -606,10 +608,11 @@ fn up_to_release(
 }
 
 fn generate_thanks() -> Result<BTreeMap<VersionTag, AuthorMap>, Box<dyn std::error::Error>> {
-    let path = update_repo("https://github.com/rust-lang/rust.git")?;
+    // let path = update_repo("https://github.com/rust-lang/rust.git")?;
+    let path = update_repo("https://github.com/php/php-src")?;
     let repo = git2::Repository::open(&path)?;
     let mailmap = mailmap_from_repo(&repo)?;
-    let reviewers = Reviewers::new()?;
+    // let reviewers = Reviewers::new()?;
 
     let mut versions = get_versions(&repo)?;
     let last_full_stable = versions
@@ -620,30 +623,13 @@ fn generate_thanks() -> Result<BTreeMap<VersionTag, AuthorMap>, Box<dyn std::err
         .clone();
 
     versions.push(VersionTag {
-        name: String::from("Beta"),
+        name: String::from("Nightly"),
         version: {
             let mut last = last_full_stable.clone();
             last.minor += 1;
             last
         },
-        raw_tag: String::from("beta"),
-        commit: repo
-            .revparse_single("beta")
-            .unwrap()
-            .peel_to_commit()
-            .unwrap()
-            .id(),
-        in_progress: true,
-    });
-    versions.push(VersionTag {
-        name: String::from("Nightly"),
-        version: {
-            // main is plus 1 minor versions off of beta, which we just pushed
-            let mut last = last_full_stable.clone();
-            last.minor += 2;
-            last
-        },
-        raw_tag: String::from("main"),
+        raw_tag: String::from("master"),
         commit: repo
             .revparse_single("HEAD")
             .unwrap()
@@ -657,24 +643,43 @@ fn generate_thanks() -> Result<BTreeMap<VersionTag, AuthorMap>, Box<dyn std::err
 
     let mut cache = HashMap::new();
 
+    // Rust has 1.94.0 come from 1.93.1
+    // PHP has 8.5.0 come from 8.4.0
+    // released_versions are those that are not patch releases
+    let mut released = vec![];
+
     for (idx, version) in versions.iter().enumerate() {
-        let previous = if let Some(v) = idx.checked_sub(1).map(|idx| &versions[idx]) {
-            v
+        let previous = if version.version.patch == 0 {
+            // Find previous patch release, but also we need to add the current
+            // version to the list of released versions
+            if released.is_empty() {
+                released.push(version.clone());
+                let author_map = build_author_map(&repo, &mailmap, "", &version.raw_tag)?;
+                version_map.insert(version.clone(), author_map);
+                continue;
+            }
+            released.push(version.clone());
+            // Second to last
+            released[ released.len() - 2 ].clone()
         } else {
-            let author_map = build_author_map(&repo, &reviewers, &mailmap, "", &version.raw_tag)?;
-            version_map.insert(version.clone(), author_map);
-            continue;
+            if let Some(v) = idx.checked_sub(1).map(|idx| &versions[idx]) {
+                v.clone()
+            } else {
+                let author_map = build_author_map(&repo, &mailmap, "", &version.raw_tag)?;
+                version_map.insert(version.clone(), author_map);
+                continue;
+            }
         };
 
         eprintln!("Processing {:?} to {:?}", previous, version);
 
         cache.insert(
             version,
-            up_to_release(&repo, &reviewers, &mailmap, &version)?,
+            up_to_release(&repo, &mailmap, &version)?,
         );
         let previous = match cache.remove(&previous) {
             Some(v) => v,
-            None => up_to_release(&repo, &reviewers, &mailmap, &previous)?,
+            None => up_to_release(&repo, &mailmap, &previous)?,
         };
         let current = cache.get(&version).unwrap();
 
