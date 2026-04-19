@@ -443,7 +443,10 @@ fn mailmap_from_repo(repo: &git2::Repository) -> Result<Mailmap, Box<dyn std::er
         .tree()?;
     let file = tree.get_name(".mailmap");
     let file = match file {
-        None => return Mailmap::from_string("".to_string()),
+        None => {
+            eprintln!("No mailmap found");
+            return Mailmap::from_string("".to_string());
+        },
         Some(f) => f
     };
     let file = String::from_utf8(
