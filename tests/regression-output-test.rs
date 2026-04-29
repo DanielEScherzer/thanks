@@ -3,11 +3,17 @@
 // Use `TESTS_UPDATE_EXPECTED` to update the expected output files when the
 // format of things changes
 use std::ffi::OsStr;
-use std::fs::{self, File};
+use std::fs;
 use std::path::Path;
 
 fn assert_file_content_matches(expected: &Path, actual: &Path, version: &OsStr) {
-    let actual_content = fs::read_to_string(actual).unwrap();
+    // Running the thanks command via `std::process::Command` is a lot slower
+    // that if we just require that it have been run beforehand
+    let actual_content = fs::read_to_string(actual).expect(&format!(
+        "The actual output at {} should exist. Did you forget to run \
+            thanks before running the tests?",
+        actual.display()
+    ));
     if std::env::var("TESTS_UPDATE_EXPECTED").is_ok() {
         fs::write(expected, &actual_content).expect("Able to write to the expected output file");
     }
@@ -31,16 +37,9 @@ fn assert_file_content_matches(expected: &Path, actual: &Path, version: &OsStr) 
 
 #[test]
 fn verify_generated_output() {
-    // Running the thanks command via `std::process::Command` is a lot slower
-    // that if we just require that it have been run beforehand
     let output_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("output")
         .join("rust");
-
-    // Use 1.95.0 as a canary - if the file for that release doesn't exist then
-    // we assume the thanks output hasn't been generated yet
-    let canary = File::open(&output_dir.join("1.95.0").join("index.html"));
-    canary.expect("1.95.0 thanks file should exist");
 
     let expectation_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
