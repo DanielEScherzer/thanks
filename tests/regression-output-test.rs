@@ -2,6 +2,9 @@
 // 1.95.0
 // Use `TESTS_UPDATE_EXPECTED` to update the expected output files when the
 // format of things changes
+// Since the output can change as the rust-lang/rust .mailmap file is adjusted,
+// these tests are run against the .mailmap as of commit
+// 0490dd938541ad996c5ad1ec6e274012afe3e1d4, see .github/workflows/ci.yml
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
