@@ -50,7 +50,7 @@ jobs:
       - name: Clone rust-lang/rust
         run: |
           git clone --bare https://github.com/rust-lang/rust.git $GITHUB_WORKSPACE/repos/rust-lang/rust
-          git -C $GITHUB_WORKSPACE/repos/rust-lang/rust branch -f main 0490dd938541ad996c5ad1ec6e274012afe3e1d4
+          git -C $GITHUB_WORKSPACE/repos/rust-lang/rust branch -f main a9da61237948d682439a9d5b87827e3118aa53c7
 
       - name: Build static website
         run: cargo run --release
