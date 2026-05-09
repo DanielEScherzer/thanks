@@ -9,6 +9,8 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 
+use regex::Regex;
+
 fn assert_file_content_matches(expected: &Path, actual: &Path, version: &OsStr) {
     // Running the thanks command via `std::process::Command` is a lot slower
     // that if we just require that it have been run beforehand
@@ -17,8 +19,15 @@ fn assert_file_content_matches(expected: &Path, actual: &Path, version: &OsStr) 
             thanks before running the tests?",
         actual.display()
     ));
+    // Simplify the HTML so that the expected output files don't take up as
+    // much space on disk - rather than a <tr> with <td>s for the rank, name,
+    // and number of commits, put them all on a line with `|` between them
+    let re = Regex::new(
+        r#"\n\s+<tr>\n\s+<td class="bn">(?<r>\d+)<\/td>\n\s+<td class="bn">(?<n>.*?)<\/td>\n\s+<td class="bn">(?<c>\d+)<\/td>\n\s+<\/tr>"#
+    ).unwrap();
+    let simplified_content = re.replace_all(&actual_content, "\n$r | $n | $c");
     if std::env::var("TESTS_UPDATE_EXPECTED").is_ok() {
-        fs::write(expected, &actual_content).expect("Able to write to the expected output file");
+        fs::write(expected, &*simplified_content).expect("Able to write to the expected output file");
     }
 
     let expected_content = fs::read_to_string(expected).unwrap();
@@ -26,8 +35,8 @@ fn assert_file_content_matches(expected: &Path, actual: &Path, version: &OsStr) 
     // Print the content as multiline strings rather than just all on one line
     // the way assert_eq! would, so that various diff tools can be used to
     // understand the comparison
-    if expected_content != actual_content {
-        for diff in diff::lines(&expected_content, &actual_content) {
+    if expected_content != simplified_content {
+        for diff in diff::lines(&expected_content, &simplified_content) {
             match diff {
                 diff::Result::Left(l) => println!("-{}", l),
                 diff::Result::Both(l, _) => println!(" {}", l),
