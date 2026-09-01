@@ -102,52 +102,6 @@ fn should_update() -> bool {
     std::env::var("REFRESH").is_ok()
 }
 
-/// Identify the versions that have been tagged in the given repo.
-///
-/// A [`VersionTag`] is created for each tagged commit in the given repository
-/// where either
-/// * the name of the tag can be parsed with [`Version::parse()`]
-/// * the name of the tag, followed by ".0", can be parsed with
-///   [`Version::parse()`]
-///
-/// The values of [`VersionTag::version`] are the results of the successful
-/// [`Version::parse()`] calls (i.e. they might include extra ".0"s not in the
-/// tag names). Each of the returned version tags has the
-/// [`in_progress`][VersionTag::in_progress] field as `false`.
-pub fn get_versions(
-    repo: &Repository,
-    name_prefix: &str,
-) -> Result<Vec<VersionTag>, Box<dyn std::error::Error>> {
-    let tags = repo
-        .tag_names(None)?
-        .into_iter()
-        .flatten()
-        .map(|v| v.to_owned())
-        .collect::<Vec<_>>();
-    let mut versions = tags
-        .iter()
-        .filter_map(|tag| {
-            Version::parse(tag)
-                .or_else(|_| Version::parse(&format!("{}.0", tag)))
-                .ok()
-                .map(|v| VersionTag {
-                    name: format!("{name_prefix} {}", v),
-                    version: v,
-                    raw_tag: tag.clone(),
-                    commit: repo
-                        .revparse_single(tag)
-                        .unwrap()
-                        .peel_to_commit()
-                        .unwrap()
-                        .id(),
-                    in_progress: false,
-                })
-        })
-        .collect::<Vec<_>>();
-    versions.sort();
-    Ok(versions)
-}
-
 /// Construct a `Mailmap` based on the latest commit in the given repository.
 ///
 /// Returns an error if the latest commit cannot be retrieved or if it does not

@@ -124,14 +124,14 @@ fn index(data: &ProjectData, output_dir: &Path) -> Result<(), Box<dyn std::error
     let mut releases = Vec::new();
     releases.push(Release {
         name: "All time".into(),
-        url: format!("/{}/all-time/", data.project.url()),
+        url: "./all-time/".into(),
         people: data.all_time.authors.iter().count(),
         commits: data.all_time.authors.iter().map(|(_, count)| count).sum(),
     });
     for (version, stats) in data.by_version.iter().rev() {
         releases.push(Release {
             name: version.name.clone(),
-            url: format!("/{}/{}/", data.project.url(), version.version),
+            url: format!("./{}/", version.version),
             people: stats.authors.iter().count(),
             commits: stats.authors.iter().map(|(_, count)| count).sum(),
         });

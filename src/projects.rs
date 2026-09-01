@@ -1,6 +1,7 @@
 use crate::Project;
 use crate::git::VersionTag;
 use git2::Repository;
+use semver::Version;
 
 pub struct Rust;
 
@@ -115,4 +116,83 @@ impl Project for Rustup {
             in_progress: true,
         });
     }
+}
+
+pub struct PHP;
+
+impl Project for PHP {
+    fn name(&self) -> &'static str {
+        "PHP"
+    }
+
+    fn url(&self) -> &'static str {
+        "PHP"
+    }
+
+    fn is_homepage(&self) -> bool {
+        false
+    }
+
+    fn repo_url(&self) -> &'static str {
+        "https://github.com/php/php-src.git"
+    }
+
+    /// Identify the versions that have been tagged.
+    fn get_versions(&self, repo: &Repository) -> Result<Vec<VersionTag>, Box<dyn std::error::Error>> {
+        let tags = repo
+            .tag_names(None)?
+            .into_iter()
+            .flatten()
+            .filter(|v| v.starts_with("php-"))
+            .map(|v| v.to_owned())
+            .collect::<Vec<_>>();
+        let mut versions = tags
+            .iter()
+            .filter_map(|tag| {
+                Version::parse(tag)
+                    .or_else(|_| Version::parse(tag.strip_prefix("php-").expect("filtered")))
+                    .or_else(|_| Version::parse(&format!("{}.0", tag)))
+                    .ok()
+                    .map(|v| VersionTag {
+                        name: format!("PHP {}", v),
+                        version: v,
+                        raw_tag: tag.clone(),
+                        commit: repo
+                            .revparse_single(tag)
+                            .unwrap()
+                            .peel_to_commit()
+                            .unwrap()
+                            .id(),
+                        in_progress: false,
+                    })
+            })
+            .collect::<Vec<_>>();
+        versions.sort();
+
+        let last_full_stable = versions
+            .iter()
+            .rfind(|v| v.raw_tag.ends_with(".0"))
+            .unwrap()
+            .version
+            .clone();
+
+        versions.push(VersionTag {
+            name: String::from("Nightly"),
+            version: {
+                let mut last = last_full_stable.clone();
+                last.minor += 1;
+                last
+            },
+            raw_tag: "master".to_string(),
+            commit: repo
+                .revparse_single("HEAD")
+                .unwrap()
+                .peel_to_commit()
+                .unwrap()
+                .id(),
+            in_progress: true,
+        });
+        Ok(versions)
+    }
+
 }

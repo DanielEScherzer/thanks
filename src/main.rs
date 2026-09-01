@@ -7,6 +7,7 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::str;
 use std::time::Instant;
+use semver::Version;
 
 mod analyse;
 mod config;
@@ -20,8 +21,8 @@ mod site;
 use crate::analyse::{
     AuthorMap, AuthorsWithScores, build_author_map, compute_data, gather_all_commits,
 };
-use crate::git::{VersionTag, get_versions, mailmap_from_repo, update_repo};
-use crate::projects::{Rust, Rustup};
+use crate::git::{VersionTag, mailmap_from_repo, update_repo};
+use crate::projects::{Rust, Rustup, PHP};
 use crate::score::AuthorScore;
 
 trait Project {
@@ -40,8 +41,59 @@ trait Project {
     /// URL of its GitHub repository.
     fn repo_url(&self) -> &'static str;
 
+    /// Identify the versions that have been tagged in the given repo.
+    ///
+    /// In the default implementation, a [`VersionTag`] is created for each
+    /// tagged commit in the given repository where either
+    /// * the name of the tag can be parsed with [`Version::parse()`]
+    /// * the name of the tag, followed by ".0", can be parsed with
+    ///   [`Version::parse()`]
+    ///
+    /// The values of [`VersionTag::version`] are the results of the successful
+    /// [`Version::parse()`] calls (i.e. they might include extra ".0"s not in the
+    /// tag names). Each of the returned version tags has the
+    /// [`in_progress`][VersionTag::in_progress] field as `false`.
+    fn get_versions(
+        &self,
+        repo: &Repository
+    ) -> Result<Vec<VersionTag>, Box<dyn std::error::Error>> {
+        let name_prefix = self.name();
+        let tags = repo
+            .tag_names(None)?
+            .into_iter()
+            .flatten()
+            .map(|v| v.to_owned())
+            .collect::<Vec<_>>();
+        let mut versions = tags
+            .iter()
+            .filter_map(|tag| {
+                Version::parse(tag)
+                    .or_else(|_| Version::parse(&format!("{}.0", tag)))
+                    .ok()
+                    .map(|v| VersionTag {
+                        name: format!("{name_prefix} {}", v),
+                        version: v,
+                        raw_tag: tag.clone(),
+                        commit: repo
+                            .revparse_single(tag)
+                            .unwrap()
+                            .peel_to_commit()
+                            .unwrap()
+                            .id(),
+                        in_progress: false,
+                    })
+            })
+            .collect::<Vec<_>>();
+        versions.sort();
+
+        self.augment_versions(repo, &mut versions);
+        Ok(versions)
+    }
+
     /// Add additional versions to the ones found from the git repository.
-    fn augment_versions(&self, repo: &Repository, versions: &mut Vec<VersionTag>);
+    fn augment_versions(&self, _repo: &Repository, _versions: &mut Vec<VersionTag>) {
+        // No-op by default
+    }
 }
 
 fn generate_thanks(
@@ -63,8 +115,7 @@ fn generate_thanks(
     };
     let reviewers = Reviewers::new()?;
 
-    let mut versions = get_versions(&repo, project.name())?;
-    project.augment_versions(&repo, &mut versions);
+    let versions = project.get_versions(&repo)?;
 
     let start = Instant::now();
 
@@ -103,7 +154,7 @@ fn run(
     mailmap_path: Option<PathBuf>,
     selected_project: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut projects: Vec<Box<dyn Project>> = vec![Box::new(Rust), Box::new(Rustup)];
+    let mut projects: Vec<Box<dyn Project>> = vec![Box::new(Rust), Box::new(Rustup), Box::new(PHP)];
     if let Some(selected) = selected_project {
         projects.retain(|p| p.name().to_lowercase() == selected);
         if projects.is_empty() {

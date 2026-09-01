@@ -65,21 +65,40 @@ pub fn gather_all_commits(
         start.elapsed().as_secs_f64()
     );
 
+    // Rust has 1.94.0 come from 1.93.1
+    // PHP has 8.5.0 come from 8.4.0
+    // released_versions are those that are not patch releases
+    let mut released = vec![];
+
     // Iterate all version from the oldest to the newest
     for version in &versions {
         let mut walk = repo.revwalk()?;
 
-        // If we have a previous version, iterate from its commit to this commit
-        // Note that stable version tag commits are usually "forked" off the commit mainline
-        // Revwalk should take that into account
-        if let Some(last) = last_version_oid {
-            // Note: the left side of this range is exclusive, but that is what we want, because we
-            // already visited the `last` commit in the previous version
-            walk.push_range(&format!("{last}..{}", version.commit))?;
+        if version.version.patch == 0 {
+            // Find previous patch release, but also we need to add the current
+            // version to the list of released versions
+            if released.is_empty() {
+                released.push(version.clone());
+                walk.push(version.commit)?;
+            } else {
+                released.push(version.clone());
+                // Second to last
+                let prev = &released[ released.len() - 2 ];
+                walk.push_range(&format!("{last}..{}", version.commit, last = prev.commit))?;
+            }
         } else {
-            // If there is no previous version, iterate from this version to the start of the
-            // commit history.
-            walk.push(version.commit)?;
+            // If we have a previous version, iterate from its commit to this commit
+            // Note that stable version tag commits are usually "forked" off the commit mainline
+            // Revwalk should take that into account
+            if let Some(last) = last_version_oid {
+                // Note: the left side of this range is exclusive, but that is what we want, because we
+                // already visited the `last` commit in the previous version
+                walk.push_range(&format!("{last}..{}", version.commit))?;
+            } else {
+                // If there is no previous version, iterate from this version to the start of the
+                // commit history.
+                walk.push(version.commit)?;
+            }
         }
 
         last_version_oid = Some(version.commit);
